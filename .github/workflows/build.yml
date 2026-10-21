@@ -1,8 +1,10 @@
+
 name: Build Fajr APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -28,10 +30,13 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Generate Android platform files
+        run: flutter create --platforms=android .
+
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build release APK
         run: flutter build apk --release
 
       - name: Upload APK
