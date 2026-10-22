@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ── users ─────────────────────────────────────────────────────────
+    // Client creates own doc with zeroed gamification; privileged fields
+    // (xp, streak, achievements) are SERVER-ONLY via Cloud Functions.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && request.resource.data.xp == 0
+        && request.resource.data.streak == 0
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 40;
+
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['displayName', 'cityName', 'calcMethod', 'lastSeen']);
+
+      allow delete: if false; // deletion only via callable function
+    }
+
+    // ── user_settings ──────────────────────────────────────────────────
+    match /user_settings/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // ── teams ─────────────────────────────────────────────────────────
+    match /teams/{teamId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.memberCount == 1
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 40;
+
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['name', 'goal', 'inviteCode', 'memberCount']);
+
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ── team_members ───────────────────────────────────────────────────
+    // Join/leave ONLY through callable functions — never direct writes
+    // (prevents forged membership, §13/§14).
+    match /team_members/{teamId}/members/{uid} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ── companion_requests ─────────────────────────────────────────────
+    // Readable/modifiable by the two participants only; status changes
+    // by the recipient only.
+    match /companion_requests/{requestId} {
+      allow read: if signedIn()
+        && request.auth.uid in [resource.data.fromUid, resource.data.toUid];
+
+      allow create: if signedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.fromUid != request.resource.data.toUid
+        && request.resource.data.status == 'pending';
+
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.toUid
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['status']);
+
+      allow delete: if signedIn()
+        && request.auth.uid in [resource.data.fromUid, resource.data.toUid];
+    }
+
+    // ── prayer_logs ────────────────────────────────────────────────────
+    // Self-report create only; XP awarded server-side only.
+    match /prayer_logs/{logId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ── audit_events ───────────────────────────────────────────────────
+    // Server-written only; never client-accessible (§20).
+    match /audit_events/{eventId} {
+      allow read, write: if false;
+    }
+  }
+}
