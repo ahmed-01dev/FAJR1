@@ -62,10 +62,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> setDhikrCount(String id, int c) async {
     await _adhkarRepo.setCount(id, c, DateTime.now());
-    _adhhkarProgressReload();
-  }
-
-  void _adhkarProgressReload() async {
     _adhkarProgress = await _adhkarRepo.load(DateTime.now());
     notifyListeners();
   }
